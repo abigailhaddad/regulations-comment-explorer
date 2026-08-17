@@ -1,4 +1,4 @@
-"""Regenerate web/data/dockets.json from the spicy-regs mirror.
+"""Regenerate web/data/dockets.json and web/data/titles.json from spicy-regs.
 
 Reads two parquet files over HTTP range requests (no download, no API key):
   comments_index.parquet  agency_code, docket_id, year, month, row_count
@@ -6,6 +6,20 @@ Reads two parquet files over HTTP range requests (no download, no API key):
 
 Output is one row per docket carrying its per-month counts, which is what lets
 the site filter by year exactly rather than by a first/last-year range.
+
+Titles ship SEPARATELY, in titles.json, because they were 62% of a single-file
+payload (5.4 MB of 8.7 MB raw; 1.0 MB of 1.7 MB brotli) while the page shows 25
+of them at a time. Splitting them out is what takes the blocking first fetch
+from ~2.6 MB to ~0.5 MB. Measured before the split: 1045 ms on a wired
+connection just to download, against ~230 ms for all the JSON parsing, filtering
+and drawing combined -- the wait was the wire, not the work.
+
+The first HEAD_TITLES titles ride along in the core file as `titlesHead`, so the
+opening screen (sorted by comments desc, 25 rows) is complete on first paint
+instead of showing a column of placeholders. titles.json then carries ALL of
+them, aligned by docket index; the ~0.2 MB of overlap is duplicated rather than
+offset-indexed because it costs ~40 KB compressed on a fetch that blocks nothing
+and it keeps both sides indexing the same way.
 
 Agency display names come from agency_names.json, a committed snapshot of
 regulations.gov's /v4/agencies. Keeping it in the repo means the daily rebuild
@@ -21,7 +35,12 @@ import duckdb
 
 SPICY = "https://r2.spicy-regs.dev"
 OUT = "web/data/dockets.json"
+TITLES_OUT = "web/data/titles.json"
 TYPES = ["Rulemaking", "Nonrulemaking"]
+
+# Titles inlined into the core file. 2000 covers the default first page many
+# times over, so scrolling or sorting within the top of the table never waits.
+HEAD_TITLES = 2000
 
 # Regulations.gov launched in 2003. Records exist back to 1990, but they are a
 # handful of agencies (mostly DOT's modes, plus OSHA and EPA) who migrated their
@@ -63,47 +82,58 @@ def main():
     agency_names = [known.get(a, a) for a in agencies]
     unnamed = [a for a in agencies if a not in known]
 
+    # The query orders by total DESC, so a docket's position in this list IS its
+    # all-time rank. It used to be written into every row as an eighth field;
+    # that spent 0.34 MB restating the array order, and the front end now derives
+    # it as index + 1. Nothing else may reorder `dockets` -- rank, the top-dockets
+    # chart and titles.json alignment all read position as meaning.
+    titles = [r[2] or "" for r in rows]
+
     data = {
         "generated": date.today().isoformat(),
         "agencies": agencies,
         "agencyNames": agency_names,
         "types": TYPES,
-        # [id, agencyIdx, title, typeIdx, total, [ym...], [comments...], rank]
-        #
-        # `rank` is the docket's position by lifetime comments across the whole
-        # dataset, assigned here rather than in the browser so that filtering
-        # never renumbers it -- "#3 of all time" has to keep meaning that when
-        # you narrow to one agency. It moves only when the data is rebuilt.
-        # The query orders by total DESC, so position is the rank.
+        # Titles for the head of the list, so the opening screen needs no second
+        # fetch. The rest arrive in titles.json.
+        "titlesHead": titles[:HEAD_TITLES],
+        # [id, agencyIdx, typeIdx, total, [ym...], [comments...]]
+        # Rank is index + 1; the title is titles[index].
         "dockets": [
             [
                 r[0],
                 agency_index[r[1]],
-                r[2] or "",
                 TYPES.index(r[3]) if r[3] in TYPES else -1,
                 int(r[4]),
                 list(r[5]),
                 [int(x) for x in r[6]],
-                i + 1,
             ]
-            for i, r in enumerate(rows)
+            for r in rows
         ],
     }
 
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     with open(OUT, "w") as f:
         json.dump(data, f, separators=(",", ":"), ensure_ascii=False)
+    with open(TITLES_OUT, "w") as f:
+        json.dump(titles, f, separators=(",", ":"), ensure_ascii=False)
 
-    raw = os.path.getsize(OUT)
-    gz = len(gzip.compress(open(OUT, "rb").read(), 6))
-    months = sum(len(d[5]) for d in data["dockets"])
-    total = sum(d[4] for d in data["dockets"])
+    def sizes(path):
+        raw = os.path.getsize(path)
+        gz = len(gzip.compress(open(path, "rb").read(), 6))
+        return raw, gz
+
+    months = sum(len(d[4]) for d in data["dockets"])
+    total = sum(d[3] for d in data["dockets"])
     print(f"{len(data['dockets']):,} dockets · {len(agencies)} agencies · "
           f"{months:,} docket-months · {total:,} comments "
           f"({FIRST_YEAR}-present)")
     if unnamed:
         print(f"no published name for {len(unnamed)}: {', '.join(unnamed)}")
-    print(f"{OUT}: {raw / 1e6:.1f} MB raw, {gz / 1e6:.2f} MB gzipped")
+    for path in (OUT, TITLES_OUT):
+        raw, gz = sizes(path)
+        blocking = " (blocks first paint)" if path == OUT else " (background)"
+        print(f"{path}: {raw / 1e6:.1f} MB raw, {gz / 1e6:.2f} MB gzipped{blocking}")
 
 
 if __name__ == "__main__":

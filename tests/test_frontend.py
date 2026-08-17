@@ -17,7 +17,9 @@ from playwright.sync_api import Page, expect
 
 BASE_URL = os.environ.get("SITE_URL", "http://localhost:8899")
 
-# The page fetches an 8.4 MB JSON, then paints ~58k rows into DataTables.
+# The page fetches a 3.2 MB core JSON, then paints ~58k rows into DataTables.
+# Titles arrive separately and fill in after; tests that read the title column
+# or filter on it go through load(), which waits for a row to exist first.
 LOAD_TIMEOUT = 60_000
 
 
@@ -29,6 +31,12 @@ def browser_context_args():
 def load(page: Page, query: str = ""):
     page.goto(BASE_URL + "/index.html" + query)
     page.wait_for_selector("#dockets tbody tr td", timeout=LOAD_TIMEOUT)
+    return page
+
+
+def wait_titles(page: Page):
+    """Block until titles.json has landed and been painted."""
+    page.wait_for_function("() => titlesReady", timeout=LOAD_TIMEOUT)
     return page
 
 
@@ -238,6 +246,69 @@ def test_rank_column_is_labelled(page: Page):
     header = page.locator("#dockets thead th").first
     assert header.inner_text().strip() == "Rank"
     assert "all time" in (header.get_attribute("title") or "")
+
+
+# ---------- the split payload -----------------------------------------------
+#
+# Titles ship in their own file so the blocking fetch is ~3.2 MB instead of
+# ~8.7 MB. These are the checks that the split still holds together: that the
+# page is usable before titles arrive, that they do arrive, and that they land
+# against the right dockets.
+
+def test_page_is_usable_before_titles_arrive(page: Page):
+    # The whole point of the split. Stats and charts come from the core file,
+    # so they must be right while titlesReady is still false.
+    page.goto(BASE_URL + "/index.html")
+    page.wait_for_function(
+        "() => DATA && document.querySelector('#dockets tbody tr td')",
+        timeout=LOAD_TIMEOUT)
+    assert stat(page, "Comments") > 20_000_000
+    assert stat(page, "Dockets") > 50_000
+    assert page.evaluate("() => chartMonth.data.datasets[0].data.length") > 100
+
+
+def test_head_titles_cover_the_opening_screen(page: Page):
+    # The first page is sorted by comments desc and titlesHead covers the top of
+    # that list, so no visible row should be waiting on the background fetch.
+    page.goto(BASE_URL + "/index.html")
+    page.wait_for_selector("#dockets tbody tr td", timeout=LOAD_TIMEOUT)
+    titles = page.locator("#dockets tbody tr td:nth-child(4)").all_inner_texts()
+    assert titles, "no rows rendered"
+    assert not any(t.strip() == "…" for t in titles), \
+        "a first-screen row was still waiting for titles.json"
+
+
+def test_titles_fill_in_for_dockets_past_the_head(page: Page):
+    load(page)
+    wait_titles(page)
+    # Index 50,000 is far beyond the 2000-title head, so this is only non-empty
+    # if titles.json loaded AND aligned by index.
+    deep = page.evaluate("() => titleOf(50000)")
+    assert isinstance(deep, str)
+    assert page.evaluate("() => TITLES.length") == \
+        page.evaluate("() => DATA.dockets.length")
+
+
+def test_titles_align_with_their_dockets(page: Page):
+    # A title search finds a docket; the table row for that docket must show the
+    # title that matched. Misalignment by even one index would break this.
+    load(page, "?title=national+monument")
+    row = page.locator("#dockets tbody tr").first
+    title = row.locator("td").nth(3).inner_text().lower()
+    assert "national monument" in title
+
+
+def test_csv_export_includes_titles(page: Page):
+    # downloadCsv reads titleOf(), so it has to await the full list rather than
+    # export the head and blanks.
+    load(page, "?min=500000")
+    wait_titles(page)
+    csv = page.evaluate("""() => {
+        const rows = applyFilters();
+        return rows.map(r => titleOf(r.idx)).filter(t => t).length + '/' + rows.length;
+    }""")
+    got, total = (int(x) for x in csv.split('/'))
+    assert total > 0 and got == total, f"only {got} of {total} exported rows had titles"
 
 
 def test_github_link_is_visible_in_the_header(page: Page):

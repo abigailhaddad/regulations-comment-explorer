@@ -4,10 +4,18 @@
  *   agencies:    ["ACF", "ACL", ...]         index -> agency code
  *   agencyNames: ["Administration of Children and Families", ...]  same index
  *   types:       ["Rulemaking", "Nonrulemaking"]
- *   dockets:  [ [id, agencyIdx, title, typeIdx, total, [ym...], [comments...], rank], ... ]
+ *   titlesHead:  titles for the first 2000 dockets
+ *   dockets:  [ [id, agencyIdx, typeIdx, total, [ym...], [comments...]], ... ]
  *
- * `rank` is position by lifetime comments across the whole dataset, fixed at
- * build time so filtering never renumbers it.
+ * `dockets` is ordered by lifetime comments desc, so a docket's INDEX is its
+ * all-time rank minus one, and titles line up with it by index. Nothing here
+ * may reorder that array -- three separate things read position as meaning.
+ *
+ * Titles arrive separately, from data/titles.json. They were 62% of the payload
+ * when everything shipped in one file, and the page shows 25 of them at a time,
+ * so the big fetch no longer blocks the first paint: the core file draws the
+ * whole page, `titlesHead` covers the opening screen, and the rest stream in
+ * behind it. See loadData() for the one case that still has to wait.
  *
  * `ym` is a month index: year = ym / 12 | 0, month = ym % 12 + 1.
  * Per-month counts are what make the year filter exact: filtering to 2019 shows
@@ -15,6 +23,11 @@
  *
  * Load order (see index.html): jQuery -> DataTables -> Chart.js -> this file.
  */
+
+// Field positions within a docket row. Named because the row is a bare array
+// and d[3] vs d[4] is exactly the kind of thing that silently charts the wrong
+// column after an edit.
+const ID = 0, AGENCY = 1, TYPE = 2, TOTAL = 3, YMS = 4, COUNTS = 5;
 
 // The one owner of filter state. Nothing else writes to it.
 const filters = { agency: [], year: [], type: [], title: '', minComments: null };
@@ -25,6 +38,16 @@ let table = null;
 let chartMonth = null;
 let chartAgency = null;
 let chartDockets = null;
+
+// Titles by docket index. Starts as the head slice from the core file and is
+// replaced by the full array when titles.json lands. Never null, so every
+// reader can just call titleOf().
+let TITLES = [];
+let titlesReady = false;
+
+function titleOf(i) {
+    return TITLES[i] || '';
+}
 
 const FIELDS = {
     agency: { label: 'Agency', kind: 'list' },
@@ -48,6 +71,9 @@ function escapeHtml(s) {
 
 // Returns plain row objects. `comments` respects the year filter, so the table,
 // the stat cards and the CSV all agree by construction.
+//
+// `idx` is the docket's position in DATA.dockets, which is both its all-time
+// rank (idx + 1) and its key into TITLES.
 function applyFilters() {
     const yearSet = filters.year.length ? new Set(filters.year.map(Number)) : null;
     const agencySet = filters.agency.length ? new Set(filters.agency) : null;
@@ -55,27 +81,30 @@ function applyFilters() {
     const needle = filters.title.trim().toLowerCase();
     const out = [];
 
-    for (const d of DATA.dockets) {
-        const agency = DATA.agencies[d[1]];
+    for (let i = 0; i < DATA.dockets.length; i++) {
+        const d = DATA.dockets[i];
+        const agency = DATA.agencies[d[AGENCY]];
         if (agencySet && !agencySet.has(agency)) continue;
 
-        const type = d[3] >= 0 ? DATA.types[d[3]] : '';
+        const type = d[TYPE] >= 0 ? DATA.types[d[TYPE]] : '';
         if (typeSet && !typeSet.has(type)) continue;
 
-        if (needle && !d[2].toLowerCase().includes(needle) &&
-            !d[0].toLowerCase().includes(needle)) continue;
+        // loadData() awaits titles before any refresh that could hit this, so a
+        // title search is never silently matched against a half-loaded list.
+        if (needle && !titleOf(i).toLowerCase().includes(needle) &&
+            !d[ID].toLowerCase().includes(needle)) continue;
 
-        const yms = d[5];
-        let comments = d[4];
+        const yms = d[YMS];
+        let comments = d[TOTAL];
         let lo = yearOf(yms[0]);
         let hi = yearOf(yms[yms.length - 1]);
         if (yearSet) {
             comments = 0;
             lo = null;
-            for (let i = 0; i < yms.length; i++) {
-                const y = yearOf(yms[i]);
+            for (let j = 0; j < yms.length; j++) {
+                const y = yearOf(yms[j]);
                 if (!yearSet.has(y)) continue;
-                comments += d[6][i];
+                comments += d[COUNTS][j];
                 if (lo === null) lo = y;
                 hi = y;
             }
@@ -84,7 +113,7 @@ function applyFilters() {
 
         if (filters.minComments !== null && comments < filters.minComments) continue;
 
-        out.push({ id: d[0], agency, title: d[2], type, comments, lo, hi, rank: d[7] });
+        out.push({ id: d[ID], agency, type, comments, lo, hi, idx: i, rank: i + 1 });
     }
     return out;
 }
@@ -109,15 +138,16 @@ function renderCharts(rows) {
     for (const r of rows) {
         byAgency.set(r.agency, (byAgency.get(r.agency) || 0) + r.comments);
     }
-    // Monthly totals need the raw per-month numbers, not the row total.
+    // Monthly totals need the raw per-month numbers, not the row total. Walking
+    // `rows` and looking each docket up by index visits only the survivors;
+    // this used to build a Set of every surviving id and rescan all 58k rows.
     const yearSet = filters.year.length ? new Set(filters.year.map(Number)) : null;
-    const keep = new Set(rows.map(r => r.id));
-    for (const d of DATA.dockets) {
-        if (!keep.has(d[0])) continue;
-        for (let i = 0; i < d[5].length; i++) {
-            const ym = d[5][i];
+    for (const r of rows) {
+        const d = DATA.dockets[r.idx];
+        for (let i = 0; i < d[YMS].length; i++) {
+            const ym = d[YMS][i];
             if (yearSet && !yearSet.has(yearOf(ym))) continue;
-            byMonth.set(ym, (byMonth.get(ym) || 0) + d[6][i]);
+            byMonth.set(ym, (byMonth.get(ym) || 0) + d[COUNTS][i]);
         }
     }
 
@@ -192,7 +222,7 @@ function renderCharts(rows) {
                     callbacks: {
                         // The axis has room for the docket id only; the tooltip is
                         // where you find out what the rulemaking actually was.
-                        title: items => topDockets[items[0].dataIndex].title || '(no title)',
+                        title: items => titleOf(topDockets[items[0].dataIndex].idx) || '(no title)',
                         label: c => fmt(c.parsed.x) + ' comments · ' +
                             topDockets[c.dataIndex].agency,
                     },
@@ -266,19 +296,27 @@ function yearRange(r) {
 }
 
 function renderTable(rows) {
-    const data = rows.map(r => [
-        r.rank,
-        '<a class="docket-id" href="https://www.regulations.gov/docket/' +
-            encodeURIComponent(r.id) + '" target="_blank" rel="noopener">' +
-            escapeHtml(r.id) + '</a>',
-        escapeHtml(r.agency),
-        r.title
-            ? '<div class="docket-title">' + escapeHtml(r.title) + '</div>'
-            : '<span class="no-title">(no title)</span>',
-        escapeHtml(r.type),
-        fmt(r.comments),
-        yearRange(r),
-    ]);
+    const data = rows.map(r => {
+        const title = titleOf(r.idx);
+        return [
+            r.rank,
+            '<a class="docket-id" href="https://www.regulations.gov/docket/' +
+                encodeURIComponent(r.id) + '" target="_blank" rel="noopener">' +
+                escapeHtml(r.id) + '</a>',
+            escapeHtml(r.agency),
+            title
+                ? '<div class="docket-title">' + escapeHtml(title) + '</div>'
+                // Before titles.json lands this is "not loaded yet", after it
+                // lands it is "this docket genuinely has no title". Saying
+                // "(no title)" during the load would be a claim about the data.
+                : (titlesReady
+                    ? '<span class="no-title">(no title)</span>'
+                    : '<span class="no-title">&hellip;</span>'),
+            escapeHtml(r.type),
+            fmt(r.comments),
+            yearRange(r),
+        ];
+    });
 
     if (!table) {
         table = new DataTable('#dockets', {
@@ -354,7 +392,7 @@ function optionsFor(field) {
     if (field === 'agency') {
         const counts = new Map();
         for (const d of DATA.dockets) {
-            const a = DATA.agencies[d[1]];
+            const a = DATA.agencies[d[AGENCY]];
             counts.set(a, (counts.get(a) || 0) + 1);
         }
         return [...counts.entries()].sort((a, b) => b[1] - a[1])
@@ -365,7 +403,7 @@ function optionsFor(field) {
     }
     if (field === 'year') {
         const years = new Set();
-        for (const d of DATA.dockets) for (const ym of d[5]) years.add(yearOf(ym));
+        for (const d of DATA.dockets) for (const ym of d[YMS]) years.add(yearOf(ym));
         return [...years].sort((a, b) => b - a).map(y => ({ value: String(y), hint: '' }));
     }
     if (field === 'type') {
@@ -471,11 +509,14 @@ function openFieldEditor(field) {
         const input = modal.querySelector('#popBody');
         input.value = filters[field] === null ? '' : filters[field];
         input.focus();
-        const apply = () => {
+        const apply = async () => {
             const raw = input.value.trim();
             if (field === 'minComments') filters.minComments = raw === '' ? null : Number(raw);
             else filters.title = raw;
             close();
+            // Searching titles against the 2000-title head would quietly return
+            // "no matches" for anything further down the list.
+            if (field === 'title' && raw) await ensureTitles();
             refresh();
         };
         modal.querySelector('#popApply').addEventListener('click', apply);
@@ -511,7 +552,7 @@ function downloadCsv(rows) {
     const esc = v => '"' + String(v).replace(/"/g, '""') + '"';
     const lines = ['overall_rank,docket_id,agency,title,docket_type,comments,first_year,last_year'];
     for (const r of rows) {
-        lines.push([r.rank, r.id, r.agency, r.title, r.type, r.comments, r.lo, r.hi]
+        lines.push([r.rank, r.id, r.agency, titleOf(r.idx), r.type, r.comments, r.lo, r.hi]
             .map(esc).join(','));
     }
     const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
@@ -524,19 +565,69 @@ function downloadCsv(rows) {
 
 /* ---------- boot --------------------------------------------------------- */
 
+// Phase timing, left in production on purpose — the same reasoning as
+// usajobs_historical's __perf(): every piece measures fast on its own (parse
+// 18ms, filter 5ms, charts 37ms, table 150ms) while the page took 1.6s, so
+// without this a "the site was slow" report is unactionable. Run __perf() in
+// the console after a slow load to see which phase owned it.
+const PERF = [];
+const perfMark = (phase) => PERF.push({ phase, ms: Math.round(performance.now()) });
+window.__perf = () => { console.table(PERF); return PERF; };
+perfMark('script-start');
+
+// Started, not awaited. Titles are the biggest thing on the wire and the least
+// urgent — nothing on the opening screen needs the tail of this list, so the
+// page paints from the core file and this fills in behind it.
+const titlesPromise = fetch('data/titles.json')
+    .then(r => (r.ok ? r.json() : null))
+    .catch(() => null);
+
+/** Resolves once the full title list is in TITLES (or has failed to load).
+ *  Anything that reads titles for ALL dockets — a title search, a CSV export —
+ *  has to await this or it silently works off the 2000-title head. */
+async function ensureTitles() {
+    if (titlesReady) return;
+    const full = await titlesPromise;
+    if (full) TITLES = full;
+    titlesReady = true;
+    perfMark(full ? 'titles-ready' : 'titles-FAILED');
+}
+
 async function loadData() {
     const res = await fetch('data/dockets.json');
     if (!res.ok) throw new Error('could not load dockets.json: HTTP ' + res.status);
     DATA = await res.json();
+    perfMark('core-data-ready');
+
+    // The head slice covers the opening screen; ensureTitles() swaps in the
+    // full list. Both are indexed by docket position, so this is a widening,
+    // not a different shape.
+    TITLES = DATA.titlesHead || [];
 
     let grand = 0;
-    for (const d of DATA.dockets) grand += d[4];
+    for (const d of DATA.dockets) grand += d[TOTAL];
     document.getElementById('headerCounts').textContent =
         fmt(grand) + ' comments across ' + fmt(DATA.dockets.length) + ' dockets and ' +
         DATA.agencies.length + ' agencies.';
 
     readFiltersFromURL();
+
+    // A shared link carrying ?title= must not paint a wrong result set first and
+    // correct itself a second later, so that one case waits. Every other filter
+    // draws immediately off the core file.
+    if (filters.title) await ensureTitles();
     refresh();
+    perfMark('first-render');
+
+    // Fill in the rest of the titles whenever they arrive. Only the table and
+    // the top-dockets tooltip read them, so this is a table redraw, not a full
+    // refresh — no recompute of stats or charts that titles cannot affect.
+    if (!titlesReady) {
+        ensureTitles().then(() => {
+            renderTable(applyFilters());
+            perfMark('titles-painted');
+        });
+    }
 
     document.getElementById('btnAddFilter').addEventListener('click', openFilterPopover);
     document.getElementById('btnClearFilters').addEventListener('click', () => {
@@ -546,7 +637,10 @@ async function loadData() {
     document.getElementById('btnCopyLink').addEventListener('click', () => {
         navigator.clipboard.writeText(location.href);
     });
-    document.getElementById('btnDownloadCsv').addEventListener('click', () => {
+    // The CSV carries a title column, so it needs the full list even though the
+    // screen may only have shown the head.
+    document.getElementById('btnDownloadCsv').addEventListener('click', async () => {
+        await ensureTitles();
         downloadCsv(applyFilters());
     });
     // Delegated: the chips themselves are replaced on every render.
