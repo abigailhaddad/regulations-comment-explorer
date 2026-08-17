@@ -68,7 +68,13 @@ def main():
         "agencies": agencies,
         "agencyNames": agency_names,
         "types": TYPES,
-        # [id, agencyIdx, title, typeIdx, total, [ym...], [comments...]]
+        # [id, agencyIdx, title, typeIdx, total, [ym...], [comments...], rank]
+        #
+        # `rank` is the docket's position by lifetime comments across the whole
+        # dataset, assigned here rather than in the browser so that filtering
+        # never renumbers it -- "#3 of all time" has to keep meaning that when
+        # you narrow to one agency. It moves only when the data is rebuilt.
+        # The query orders by total DESC, so position is the rank.
         "dockets": [
             [
                 r[0],
@@ -78,8 +84,9 @@ def main():
                 int(r[4]),
                 list(r[5]),
                 [int(x) for x in r[6]],
+                i + 1,
             ]
-            for r in rows
+            for i, r in enumerate(rows)
         ],
     }
 

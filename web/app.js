@@ -4,7 +4,10 @@
  *   agencies:    ["ACF", "ACL", ...]         index -> agency code
  *   agencyNames: ["Administration of Children and Families", ...]  same index
  *   types:       ["Rulemaking", "Nonrulemaking"]
- *   dockets:  [ [id, agencyIdx, title, typeIdx, total, [ym...], [comments...]], ... ]
+ *   dockets:  [ [id, agencyIdx, title, typeIdx, total, [ym...], [comments...], rank], ... ]
+ *
+ * `rank` is position by lifetime comments across the whole dataset, fixed at
+ * build time so filtering never renumbers it.
  *
  * `ym` is a month index: year = ym / 12 | 0, month = ym % 12 + 1.
  * Per-month counts are what make the year filter exact: filtering to 2019 shows
@@ -81,7 +84,7 @@ function applyFilters() {
 
         if (filters.minComments !== null && comments < filters.minComments) continue;
 
-        out.push({ id: d[0], agency, title: d[2], type, comments, lo, hi });
+        out.push({ id: d[0], agency, title: d[2], type, comments, lo, hi, rank: d[7] });
     }
     return out;
 }
@@ -264,6 +267,7 @@ function yearRange(r) {
 
 function renderTable(rows) {
     const data = rows.map(r => [
+        r.rank,
         '<a class="docket-id" href="https://www.regulations.gov/docket/' +
             encodeURIComponent(r.id) + '" target="_blank" rel="noopener">' +
             escapeHtml(r.id) + '</a>',
@@ -281,10 +285,11 @@ function renderTable(rows) {
             data,
             deferRender: true,
             pageLength: 25,
-            order: [[4, 'desc']],
+            order: [[5, 'desc']],
             columnDefs: [
-                { targets: [4], className: 'num', type: 'num-fmt' },
-                { targets: [5], className: 'num' },
+                { targets: [0], className: 'num rank-col' },
+                { targets: [5], className: 'num', type: 'num-fmt' },
+                { targets: [6], className: 'num' },
             ],
         });
         document.getElementById('loading').style.display = 'none';
@@ -504,9 +509,9 @@ function readFiltersFromURL() {
 
 function downloadCsv(rows) {
     const esc = v => '"' + String(v).replace(/"/g, '""') + '"';
-    const lines = ['docket_id,agency,title,docket_type,comments,first_year,last_year'];
+    const lines = ['overall_rank,docket_id,agency,title,docket_type,comments,first_year,last_year'];
     for (const r of rows) {
-        lines.push([r.id, r.agency, r.title, r.type, r.comments, r.lo, r.hi]
+        lines.push([r.rank, r.id, r.agency, r.title, r.type, r.comments, r.lo, r.hi]
             .map(esc).join(','));
     }
     const blob = new Blob([lines.join('\n')], { type: 'text/csv' });

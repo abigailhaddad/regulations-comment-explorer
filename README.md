@@ -82,3 +82,24 @@ Needs two repo secrets: `CLOUDFLARE_API_TOKEN` (account-scoped, Cloudflare Pages
   the notebook this grew out of, which counts one agency straight from the Mirrulations S3 mirror.
 - [omb-comment-queue](https://github.com/abigailhaddad/omb-comment-queue) — estimating the comments
   that *haven't* been posted.
+
+## Tests
+
+```bash
+pip install pytest pytest-playwright && python -m playwright install chromium
+python build_data.py
+cd web && python3 -m http.server 8899 &      # frontend tests need it served
+python -m pytest tests/ -q                    # 33 tests
+```
+
+`tests/test_data.py` checks invariants on the rebuilt JSON — row totals equal the sum of their
+monthly parts, months are sorted and unique, agency codes and names stay index-aligned, ranks are
+1..N with no gaps and in comment order, nothing predates 2003, and the dataset isn't truncated.
+
+`tests/test_frontend.py` drives a real browser: no console errors, all three charts populate, the
+stat total agrees with the month chart, filters narrow every panel together, a year filter reports
+that year's comments rather than lifetime totals, chips clear, docket IDs link out, chart labels
+aren't clipped, and rank does not renumber under a filter.
+
+CI runs both and **only deploys if they pass**, then re-checks that the live URL serves. A broken
+build still returns HTTP 200, so a successful deploy proves nothing on its own.

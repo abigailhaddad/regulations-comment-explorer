@@ -14,6 +14,7 @@
     .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
     #dockets tbody tr:hover { background: var(--color-surface); }
     .no-title { color: var(--color-text-muted); font-style: italic; }
+    .rank-col { color: var(--color-text-muted); font-variant-numeric: tabular-nums; width: 1%; }
     .loading-text { padding: 3rem 0; text-align: center; color: var(--color-text-muted); }
 </style>
 </head>
@@ -80,10 +81,11 @@
     </section>
 
     <div class="table-scroll-wrapper">
-        <div class="loading-text" id="loading">Loading 59,594 dockets&hellip;</div>
+        <div class="loading-text" id="loading">Loading dockets&hellip;</div>
         <table id="dockets" class="table table-sm" style="width:100%; display:none;">
             <thead>
                 <tr>
+                    <th class="num" title="Position by total comments across all dockets, all agencies. Does not change when you filter.">#</th>
                     <th>Docket</th>
                     <th>Agency</th>
                     <th>Title</th>
