@@ -13,8 +13,11 @@ import os
 
 import pytest
 
-DATA_PATH = os.path.join(os.path.dirname(__file__), "..", "web", "data", "dockets.json")
-TITLES_PATH = os.path.join(os.path.dirname(__file__), "..", "web", "data", "titles.json")
+SCHEMA = 2
+DATA_PATH = os.path.join(
+    os.path.dirname(__file__), "..", "web", "data", f"dockets.v{SCHEMA}.json")
+TITLES_PATH = os.path.join(
+    os.path.dirname(__file__), "..", "web", "data", f"titles.v{SCHEMA}.json")
 
 # The site starts where regulations.gov does; build_data.py enforces this and
 # the header copy states it, so a stray earlier year means they disagree.
@@ -42,8 +45,20 @@ def titles():
 
 
 def test_top_level_keys(data):
-    for key in ("agencies", "agencyNames", "types", "dockets", "generated", "titlesHead"):
+    for key in ("agencies", "agencyNames", "types", "dockets", "generated",
+                "titlesHead", "schema"):
         assert key in data, f"missing top-level key: {key}"
+
+
+def test_schema_matches_the_filename_and_app_js(data):
+    # These three have to move together. When they did not, browsers with a
+    # cached app.js read the new rows at the old offsets and the page printed
+    # concatenated month indices where the comment total belonged.
+    assert data["schema"] == SCHEMA, f"payload says schema {data['schema']}, path says {SCHEMA}"
+    app_js = os.path.join(os.path.dirname(__file__), "..", "web", "app.js")
+    with open(app_js) as f:
+        src = f.read()
+    assert f"const SCHEMA = {SCHEMA};" in src, "app.js SCHEMA disagrees with the data"
 
 
 def test_agency_names_align_with_codes(data):

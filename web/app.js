@@ -575,10 +575,21 @@ const perfMark = (phase) => PERF.push({ phase, ms: Math.round(performance.now())
 window.__perf = () => { console.table(PERF); return PERF; };
 perfMark('script-start');
 
+// The row shape this file knows how to read. It is in the data URLs and checked
+// against the payload, because the alternative failed in production: the split
+// changed `dockets` from 8 fields to 6 under the same filename, and browsers
+// holding a cached app.js read new rows at old offsets. The headline summed
+// d[4] -- once the total, now the months array -- and printed a mile of
+// concatenated month indices instead of 25.4M. Wrong, and silent.
+//
+// Versioned names mean a stale app.js requests a URL that no longer exists and
+// fails visibly; the assert below catches anything that slips past that.
+const SCHEMA = 2;
+
 // Started, not awaited. Titles are the biggest thing on the wire and the least
 // urgent — nothing on the opening screen needs the tail of this list, so the
 // page paints from the core file and this fills in behind it.
-const titlesPromise = fetch('data/titles.json')
+const titlesPromise = fetch(`data/titles.v${SCHEMA}.json`)
     .then(r => (r.ok ? r.json() : null))
     .catch(() => null);
 
@@ -594,9 +605,17 @@ async function ensureTitles() {
 }
 
 async function loadData() {
-    const res = await fetch('data/dockets.json');
-    if (!res.ok) throw new Error('could not load dockets.json: HTTP ' + res.status);
+    const url = `data/dockets.v${SCHEMA}.json`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`could not load ${url}: HTTP ${res.status}`);
     DATA = await res.json();
+    // Belt and braces with the versioned filename. Reading rows at the wrong
+    // offsets does not throw in JS -- it produces a plausible-looking wrong
+    // number -- so refuse to render rather than publish one.
+    if (DATA.schema !== SCHEMA) {
+        throw new Error(
+            `data schema ${DATA.schema} but this app.js reads ${SCHEMA} — reload the page`);
+    }
     perfMark('core-data-ready');
 
     // The head slice covers the opening screen; ensureTitles() swaps in the

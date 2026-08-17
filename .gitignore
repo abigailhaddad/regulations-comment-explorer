@@ -4,5 +4,6 @@ __pycache__/
 .playwright-mcp/
 
 # Rebuilt by build_data.py / CI; 8.7 MB between them, and changes daily.
-web/data/dockets.json
-web/data/titles.json
+# Globbed rather than named, so a schema bump does not start committing data.
+web/data/dockets.v*.json
+web/data/titles.v*.json

@@ -34,8 +34,21 @@ from datetime import date
 import duckdb
 
 SPICY = "https://r2.spicy-regs.dev"
-OUT = "web/data/dockets.json"
-TITLES_OUT = "web/data/titles.json"
+
+# The row shape is IN the filename, and SCHEMA goes in the payload. Both exist
+# because of a real outage: splitting titles out changed `dockets` from 8 fields
+# to 6 while the file kept its name, so browsers holding a cached app.js read the
+# new rows with the old offsets. d[4] went from "total comments" to "the months
+# array", and the page headline rendered `0 + [24208,24209,...]` -- a mile of
+# concatenated month indices where a comment count belonged. It never errored;
+# it just published a wrong number.
+#
+# Renaming on every shape change is what makes that impossible: a stale app.js
+# asks for a URL that no longer exists and fails loudly instead of misreading
+# live data. Bump BOTH when the row shape changes.
+SCHEMA = 2
+OUT = f"web/data/dockets.v{SCHEMA}.json"
+TITLES_OUT = f"web/data/titles.v{SCHEMA}.json"
 TYPES = ["Rulemaking", "Nonrulemaking"]
 
 # Titles inlined into the core file. 2000 covers the default first page many
@@ -90,6 +103,7 @@ def main():
     titles = [r[2] or "" for r in rows]
 
     data = {
+        "schema": SCHEMA,
         "generated": date.today().isoformat(),
         "agencies": agencies,
         "agencyNames": agency_names,

@@ -1,7 +1,7 @@
 name: Rebuild data, test, deploy
 
 # The dataset is rebuilt from spicy-regs on every run rather than committed:
-# it is ~8.7 MB across dockets.json and titles.json and changes daily, so
+# it is ~8.7 MB across the two data files and changes daily, so
 # committing it would bloat the repo for no benefit — the live site is the only
 # copy that needs to be current.
 #
@@ -42,7 +42,7 @@ jobs:
       - name: Install Chromium
         run: python -m playwright install --with-deps chromium
 
-      - name: Rebuild dockets.json and titles.json from spicy-regs
+      - name: Rebuild the versioned data files from spicy-regs
         run: python build_data.py
 
       - name: Data tests
@@ -78,8 +78,8 @@ jobs:
         run: |
           sleep 15
           for url in https://regulations-comments.abigailhaddad.com/ \
-                     https://regulations-comments.abigailhaddad.com/data/dockets.json \
-                     https://regulations-comments.abigailhaddad.com/data/titles.json; do
+                     https://regulations-comments.abigailhaddad.com/data/dockets.v2.json \
+                     https://regulations-comments.abigailhaddad.com/data/titles.v2.json; do
             code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 60 "$url")
             echo "$code  $url"
             [ "$code" = "200" ] || exit 1
