@@ -231,3 +231,11 @@ def test_rank_column_is_labelled(page: Page):
     header = page.locator("#dockets thead th").first
     assert header.inner_text().strip() == "Rank"
     assert "all time" in (header.get_attribute("title") or "")
+
+
+def test_github_link_is_visible_in_the_header(page: Page):
+    load(page)
+    link = page.locator("header.site-nav a, .site-header .site-nav a").first
+    assert link.is_visible()
+    assert link.get_attribute("href") == \
+        "https://github.com/abigailhaddad/regulations-comment-explorer"
