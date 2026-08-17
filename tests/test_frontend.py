@@ -39,8 +39,15 @@ def stat(page: Page, which: str) -> int:
 # ---------- it loads at all -------------------------------------------------
 
 def test_no_console_errors(page: Page):
+    # Chromium logs a failed request as "Failed to load resource: ... 404 ()"
+    # with no URL in the text -- the URL is only in the message location. Append
+    # it, or a 404 for anything is indistinguishable from a 404 for the favicon.
     errors = []
-    page.on("console", lambda m: errors.append(m.text) if m.type == "error" else None)
+    page.on(
+        "console",
+        lambda m: errors.append(f"{m.text} [{m.location.get('url', '?')}]")
+        if m.type == "error" else None,
+    )
     page.on("pageerror", lambda e: errors.append(str(e)))
     load(page)
     # favicon 404s are noise, not a broken page.
