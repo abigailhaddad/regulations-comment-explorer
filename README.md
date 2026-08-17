@@ -27,7 +27,7 @@ to an empty table.
 No bundler, no framework. jQuery + DataTables + Chart.js + Bootstrap from CDN, all filtering
 client-side. `python3 -m http.server` in `web/` is a full dev environment.
 
-## Why the data is shaped this way
+## Data shape
 
 Everything ships to the browser and filters there. 131,226 docket-month rows is small, and that
 beats a query layer with a round trip on every filter change.
@@ -39,13 +39,13 @@ code. `dockets.v2.json` inlines the first 2000 titles so the opening screen need
 the rest stream in behind it. A title search and the CSV export await the full list rather than
 quietly matching against the head.
 
-`dockets` is ordered by comments desc, so a docket's **index** is its all-time rank (`index + 1`)
+`dockets` is ordered by comments desc, so a docket's index is its all-time rank (`index + 1`)
 and its key into the titles array. Nothing may reorder it.
 
 `ym` packs a date into one integer: `year = ym / 12 | 0`, `month = ym % 12 + 1`. Per-month counts
 make the year filter exact — 2019 shows each docket's 2019 comments, not its lifetime total.
 
-**The `v2` in the filenames is the row shape.** Bump it, the `schema` field, and `SCHEMA` in
+The `v2` in the filenames is the row shape. Bump it, the `schema` field, and `SCHEMA` in
 `app.js` together whenever the shape changes. It's there because a shape change under the old
 filename let cached browsers read new rows at old offsets and print a wrong total without erroring.
 
@@ -71,7 +71,7 @@ python -m pytest tests/ -q
 ```
 
 `test_data.py` covers invariants on the rebuilt JSON; `test_frontend.py` drives a real browser.
-CI runs both and **only deploys if they pass**, then re-checks that the live URL serves — a broken
+CI runs both and only deploys if they pass, then re-checks that the live URL serves — a broken
 build still returns HTTP 200, so a successful deploy proves nothing on its own.
 
 ## Deployment
@@ -82,25 +82,20 @@ push touching `web/` or `build_data.py`, and on manual dispatch.
 Needs two repo secrets: `CLOUDFLARE_API_TOKEN` (account-scoped, Cloudflare Pages: Edit) and
 `CLOUDFLARE_ACCOUNT_ID`.
 
-## Caveats that matter
+## Caveats
 
-- **Only posted comments are counted.** Every regulations.gov mirror is API-derived, so a backlog
-  waiting to be posted is invisible. An agency sitting on one reads low here and nothing in the data
+- Only posted comments are counted. Every regulations.gov mirror is API-derived, so a backlog
+  waiting to be posted is invisible — an agency sitting on one reads low, and nothing in the data
   says by how much. See [omb-comment-queue](https://github.com/abigailhaddad/omb-comment-queue).
-- **Agencies that file elsewhere are absent.** The FCC runs its own system (ECFS), so its
-  net-neutrality dockets — ~22M comments — are not in this data at all. "All agencies" means all
-  agencies *on regulations.gov*.
-- **Pre-2003 is excluded on purpose.** Regulations.gov launched in 2003. The source data goes back
-  to 1990, but that era is 9–16 agencies out of 179 and ~1% of comments — DOT's modes (FMCSA, FAA,
-  NHTSA, FHWA, PHMSA, USCG, FRA, MARAD, FTA) plus OSHA and EPA, migrating their own legacy docket
-  systems. Nothing else from those years is in regulations.gov at all, so showing them invites
-  reading a partial sample as a census. Set `FIRST_YEAR` in `build_data.py` to get them back.
-- **Coverage still ramps after 2003:** 25 agencies by 2005, 50 by 2007, 100 by 2010. Early years are
-  thinner than they look.
-- **Impossible receive dates dropped** (year 0, 1753, 1894…) — mis-keyed, not history.
-- **Agency names** come from `agency_names.json`, a committed snapshot of regulations.gov's
-  `/v4/agencies`, so the daily build needs no API key. Refresh with `refresh_agency_names.py`.
-  Two codes (`ERULE`, `TRAIN`) have no published name and fall back to the code.
+- Agencies that file elsewhere are missing. The FCC runs its own system (ECFS), so its
+  net-neutrality dockets — ~22M comments — aren't here at all.
+- Pre-2003 is excluded. Regulations.gov launched in 2003; the source goes back to 1990, but that era
+  is 9–16 agencies out of 179 and ~1% of comments, mostly DOT's modes plus OSHA and EPA migrating
+  legacy systems. Set `FIRST_YEAR` in `build_data.py` to include them.
+- Coverage keeps ramping after that: 25 agencies by 2005, 50 by 2007, 100 by 2010.
+- Impossible receive dates (year 0, 1753, 1894…) are dropped as mis-keyed.
+- Agency names come from `agency_names.json`, a snapshot of `/v4/agencies`, so the daily build needs
+  no API key. `ERULE` and `TRAIN` have no published name and fall back to the code.
 
 ## Related
 
