@@ -1,9 +1,8 @@
 # Regulations.gov Comment Counts
 
-Every docket on regulations.gov and how many public comments it got — 25.4M comments across 58,026
-dockets and 179 agencies, 2003 to present. Filter by agency, year, docket type, title text, or a
-minimum comment count; every chart, the stat cards and the CSV all follow the filters. Docket
-IDs link to the docket on regulations.gov.
+Every docket on regulations.gov and how many public comments it got, 2003 to present. Filter by
+agency, year, docket type, title text, or a minimum comment count; every chart, the stat cards and
+the CSV all follow the filters. Docket IDs link to the docket on regulations.gov.
 
 **Live:** https://regulations-comments.pages.dev
 
@@ -29,8 +28,8 @@ client-side. `python3 -m http.server` in `web/` is a full dev environment.
 
 ## Data shape
 
-Everything ships to the browser and filters there. 131,226 docket-month rows is small, and that
-beats a query layer with a round trip on every filter change.
+Everything ships to the browser and filters there. The dataset is small enough (~130k docket-month
+rows) that this beats a query layer with a round trip on every filter change.
 
 Titles ship separately because they were 62% of the payload for a table that shows 25 at a time.
 Splitting them took the blocking fetch from 2.6 MB to 0.8 MB — the old single file spent 1045 ms on
@@ -86,7 +85,7 @@ Needs two repo secrets: `CLOUDFLARE_API_TOKEN` (account-scoped, Cloudflare Pages
 
 - Only posted comments are counted. Every regulations.gov mirror is API-derived, so a backlog
   waiting to be posted is invisible — an agency sitting on one reads low, and nothing in the data
-  says by how much. See [omb-comment-queue](https://github.com/abigailhaddad/omb-comment-queue).
+  says by how much.
 - Agencies that file elsewhere are missing. The FCC runs its own system (ECFS), so its
   net-neutrality dockets — ~22M comments — aren't here at all.
 - Pre-2003 is excluded. Regulations.gov launched in 2003; the source goes back to 1990, but that era
@@ -101,5 +100,3 @@ Needs two repo secrets: `CLOUDFLARE_API_TOKEN` (account-scoped, Cloudflare Pages
 
 - [omb-historical-comment-counts](https://github.com/abigailhaddad/omb-historical-comment-counts) —
   the notebook this grew out of, which counts one agency straight from the Mirrulations S3 mirror.
-- [omb-comment-queue](https://github.com/abigailhaddad/omb-comment-queue) — estimating the comments
-  that *haven't* been posted.
