@@ -95,17 +95,9 @@ function renderStats(rows) {
         total += r.comments;
         agencies.add(r.agency);
     }
-    const sorted = rows.map(r => r.comments).sort((a, b) => a - b);
-    const median = sorted.length
-        ? (sorted.length % 2
-            ? sorted[(sorted.length - 1) / 2]
-            : Math.round((sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2))
-        : 0;
-
     document.getElementById('statComments').textContent = fmt(total);
     document.getElementById('statDockets').textContent = fmt(rows.length);
     document.getElementById('statAgencies').textContent = fmt(agencies.size);
-    document.getElementById('statMedian').textContent = fmt(median);
 }
 
 function renderCharts(rows) {
@@ -207,7 +199,17 @@ function renderCharts(rows) {
                 x: { grid: { color: grid }, ticks: { color: tick, callback: v => fmt(v) } },
                 y: {
                     grid: { display: false },
-                    ticks: { color: tick, autoSkip: false, font: { family: 'JetBrains Mono' } },
+                    ticks: {
+                        color: tick, autoSkip: false,
+                        font: { family: 'JetBrains Mono, monospace', size: 11 },
+                    },
+                    // Chart.js under-measures the mono font here and clips the left
+                    // of long ids ("EPA-R08-OAR-2024-0389"), so claim the width
+                    // outright from the longest label actually being drawn.
+                    afterFit(scale) {
+                        const longest = Math.max(...topDockets.map(r => r.id.length));
+                        scale.width = Math.min(300, longest * 7.4 + 18);
+                    },
                 },
             },
         },
