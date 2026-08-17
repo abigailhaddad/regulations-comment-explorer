@@ -575,15 +575,9 @@ const perfMark = (phase) => PERF.push({ phase, ms: Math.round(performance.now())
 window.__perf = () => { console.table(PERF); return PERF; };
 perfMark('script-start');
 
-// The row shape this file knows how to read. It is in the data URLs and checked
-// against the payload, because the alternative failed in production: the split
-// changed `dockets` from 8 fields to 6 under the same filename, and browsers
-// holding a cached app.js read new rows at old offsets. The headline summed
-// d[4] -- once the total, now the months array -- and printed a mile of
-// concatenated month indices instead of 25.4M. Wrong, and silent.
-//
-// Versioned names mean a stale app.js requests a URL that no longer exists and
-// fails visibly; the assert below catches anything that slips past that.
+// Row shape this file knows how to read; also in the data URLs, so a stale
+// cached copy of this file 404s rather than reading new rows at old offsets.
+// That mismatch once printed a wrong total on the live page without erroring.
 const SCHEMA = 2;
 
 // Started, not awaited. Titles are the biggest thing on the wire and the least

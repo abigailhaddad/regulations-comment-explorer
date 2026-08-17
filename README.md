@@ -11,13 +11,13 @@ IDs link to the docket on regulations.gov.
 
 ```
 web/
-  index.html          the page
-  app.js              all the logic, plain functions, no build step
-  shared/shared.css   design system, shared with usajobs_historical
-  data/dockets.json   counts, months, agencies — blocks first paint
-  data/titles.json    docket titles — loads in the background
-build_data.py         regenerates both from spicy-regs
-.github/workflows/    daily rebuild + deploy to Cloudflare Pages
+  index.html            the page
+  app.js                all the logic, plain functions, no build step
+  shared/shared.css     design system, shared with usajobs_historical
+  data/dockets.v2.json  counts, months, agencies — blocks first paint
+  data/titles.v2.json   docket titles — loads in the background
+build_data.py           regenerates both from spicy-regs
+.github/workflows/      daily rebuild + deploy to Cloudflare Pages
 ```
 
 Both data files are gitignored: 8.7 MB changing daily would bloat the repo for nothing, and CI
@@ -27,55 +27,31 @@ to an empty table.
 No bundler, no framework. jQuery + DataTables + Chart.js + Bootstrap from CDN, all filtering
 client-side. `python3 -m http.server` in `web/` is a full dev environment.
 
-## Why the data is split in two
+## Why the data is shaped this way
 
-Everything ships to the browser and filters there — 131,226 docket-month rows is small, and a
-client-side filter beats a query layer with a round trip on every change.
+Everything ships to the browser and filters there. 131,226 docket-month rows is small, and that
+beats a query layer with a round trip on every filter change.
 
-But it does not all have to arrive at once. Titles were 62% of the payload (5.4 MB of 8.7 MB raw,
-1.0 MB of 1.7 MB brotli) for a table that shows 25 of them at a time, so they now ship separately:
+Titles ship separately because they were 62% of the payload for a table that shows 25 at a time.
+Splitting them took the blocking fetch from 2.6 MB to 0.8 MB — the old single file spent 1045 ms on
+the wire against ~230 ms of parsing, filtering and drawing, so the fix was sending less, not faster
+code. `dockets.v2.json` inlines the first 2000 titles so the opening screen needs no second fetch;
+the rest stream in behind it. A title search and the CSV export await the full list rather than
+quietly matching against the head.
 
-| | blocks first paint | size |
-|---|---|---|
-| `dockets.json` | yes | 3.2 MB raw / ~0.55 MB brotli |
-| `titles.json` | no | 5.4 MB raw / ~1.0 MB brotli |
+`dockets` is ordered by comments desc, so a docket's **index** is its all-time rank (`index + 1`)
+and its key into the titles array. Nothing may reorder it.
 
-The measurement that drove this: the old single file took **1045 ms** to download against **~230 ms**
-for all the JSON parsing, filtering, chart-drawing and table-painting combined. The wait was the
-wire, not the work, so the fix was to send less of it up front rather than to make the code faster.
+`ym` packs a date into one integer: `year = ym / 12 | 0`, `month = ym % 12 + 1`. Per-month counts
+make the year filter exact — 2019 shows each docket's 2019 comments, not its lifetime total.
 
-`dockets.json` carries `titlesHead`, the first 2000 titles, so the opening screen — sorted by
-comments desc — is complete on first paint rather than showing placeholders. `titles.json` then
-carries all of them, aligned by docket index, and the table redraws when it lands.
+**The `v2` in the filenames is the row shape.** Bump it, the `schema` field, and `SCHEMA` in
+`app.js` together whenever the shape changes. It's there because a shape change under the old
+filename let cached browsers read new rows at old offsets and print a wrong total without erroring.
 
-Two things read titles for *every* docket rather than the visible few, and both await the full
-list instead of quietly working off the head: a title search, and the CSV export. A shared link
-carrying `?title=` also waits, so it never paints a wrong result set and corrects itself.
+`__perf()` in the console dumps phase timings, left in production so "it felt slow" is diagnosable.
 
-`dockets` is ordered by lifetime comments desc, which makes a docket's **index** carry three
-meanings at once: its all-time rank (`index + 1`), its key into `titles.json`, and its position in
-`titlesHead`. Nothing may reorder that array. Rank used to be stored per row; that spent 0.34 MB
-restating the array order.
-
-The month index `ym` packs a date into one integer: `year = ym / 12 | 0`, `month = ym % 12 + 1`.
-Per-month counts are what make the year filter exact — filtering to 2019 shows each docket's 2019
-comments, not its lifetime total.
-
-## Debugging a slow load
-
-`app.js` keeps phase timings in production and exposes them as `__perf()` in the console — the same
-idea as usajobs_historical. Every piece of this page measures fast in isolation (parse 18 ms, filter
-5 ms, charts 37 ms, table 150 ms) while the page as a whole took 1.6 s, so without phase marks a
-"the site felt slow" report is unactionable.
-
-```js
-__perf()   // script-start → core-data-ready → first-render → titles-ready → titles-painted
-```
-
-`tests/test_data.py::test_core_file_stays_small` fails the build if `dockets.json` grows past
-4.5 MB, so a new per-docket field has to be a deliberate choice rather than a silent regression.
-
-## Running it locally
+## Running it
 
 ```bash
 pip install duckdb
@@ -86,12 +62,22 @@ cd web && python3 -m http.server     # open localhost:8000
 `build_data.py` reads `comments_index.parquet` (counts) and `dockets.parquet` (titles) from
 [spicy-regs](https://r2.spicy-regs.dev) over HTTP range requests — no download, no API key.
 
+Tests need a served copy and a browser:
+
+```bash
+pip install pytest pytest-playwright && python -m playwright install chromium
+cd web && python3 -m http.server 8899 &
+python -m pytest tests/ -q
+```
+
+`test_data.py` covers invariants on the rebuilt JSON; `test_frontend.py` drives a real browser.
+CI runs both and **only deploys if they pass**, then re-checks that the live URL serves — a broken
+build still returns HTTP 200, so a successful deploy proves nothing on its own.
+
 ## Deployment
 
-`.github/workflows/update.yml` rebuilds the data and deploys to Cloudflare Pages daily at 09:17 UTC,
-on any push touching `web/` or `build_data.py`, and on manual dispatch. It sanity-checks the rebuilt
-JSON (file size, docket count, comment total) before deploying — a truncated build would otherwise
-publish a broken site that still returns 200.
+`.github/workflows/update.yml` rebuilds and deploys to Cloudflare Pages daily at 09:17 UTC, on any
+push touching `web/` or `build_data.py`, and on manual dispatch.
 
 Needs two repo secrets: `CLOUDFLARE_API_TOKEN` (account-scoped, Cloudflare Pages: Edit) and
 `CLOUDFLARE_ACCOUNT_ID`.
@@ -122,24 +108,3 @@ Needs two repo secrets: `CLOUDFLARE_API_TOKEN` (account-scoped, Cloudflare Pages
   the notebook this grew out of, which counts one agency straight from the Mirrulations S3 mirror.
 - [omb-comment-queue](https://github.com/abigailhaddad/omb-comment-queue) — estimating the comments
   that *haven't* been posted.
-
-## Tests
-
-```bash
-pip install pytest pytest-playwright && python -m playwright install chromium
-python build_data.py
-cd web && python3 -m http.server 8899 &      # frontend tests need it served
-python -m pytest tests/ -q                    # 33 tests
-```
-
-`tests/test_data.py` checks invariants on the rebuilt JSON — row totals equal the sum of their
-monthly parts, months are sorted and unique, agency codes and names stay index-aligned, ranks are
-1..N with no gaps and in comment order, nothing predates 2003, and the dataset isn't truncated.
-
-`tests/test_frontend.py` drives a real browser: no console errors, all three charts populate, the
-stat total agrees with the month chart, filters narrow every panel together, a year filter reports
-that year's comments rather than lifetime totals, chips clear, docket IDs link out, chart labels
-aren't clipped, and rank does not renumber under a filter.
-
-CI runs both and **only deploys if they pass**, then re-checks that the live URL serves. A broken
-build still returns HTTP 200, so a successful deploy proves nothing on its own.

@@ -1,4 +1,4 @@
-"""Regenerate web/data/dockets.json and web/data/titles.json from spicy-regs.
+"""Regenerate the site's two data files from spicy-regs.
 
 Reads two parquet files over HTTP range requests (no download, no API key):
   comments_index.parquet  agency_code, docket_id, year, month, row_count
@@ -7,19 +7,12 @@ Reads two parquet files over HTTP range requests (no download, no API key):
 Output is one row per docket carrying its per-month counts, which is what lets
 the site filter by year exactly rather than by a first/last-year range.
 
-Titles ship SEPARATELY, in titles.json, because they were 62% of a single-file
-payload (5.4 MB of 8.7 MB raw; 1.0 MB of 1.7 MB brotli) while the page shows 25
-of them at a time. Splitting them out is what takes the blocking first fetch
-from ~2.6 MB to ~0.5 MB. Measured before the split: 1045 ms on a wired
-connection just to download, against ~230 ms for all the JSON parsing, filtering
-and drawing combined -- the wait was the wire, not the work.
-
-The first HEAD_TITLES titles ride along in the core file as `titlesHead`, so the
-opening screen (sorted by comments desc, 25 rows) is complete on first paint
-instead of showing a column of placeholders. titles.json then carries ALL of
-them, aligned by docket index; the ~0.2 MB of overlap is duplicated rather than
-offset-indexed because it costs ~40 KB compressed on a fetch that blocks nothing
-and it keeps both sides indexing the same way.
+Titles ship separately because they were 62% of a single-file payload while the
+page shows 25 at a time; splitting them took the blocking fetch from ~2.6 MB to
+~0.8 MB. The first HEAD_TITLES ride along in the core file as `titlesHead` so
+the opening screen is complete on first paint; titles.json then carries all of
+them, aligned by docket index. The overlap is duplicated rather than
+offset-indexed -- ~40 KB compressed, on a fetch that blocks nothing.
 
 Agency display names come from agency_names.json, a committed snapshot of
 regulations.gov's /v4/agencies. Keeping it in the repo means the daily rebuild
@@ -35,17 +28,10 @@ import duckdb
 
 SPICY = "https://r2.spicy-regs.dev"
 
-# The row shape is IN the filename, and SCHEMA goes in the payload. Both exist
-# because of a real outage: splitting titles out changed `dockets` from 8 fields
-# to 6 while the file kept its name, so browsers holding a cached app.js read the
-# new rows with the old offsets. d[4] went from "total comments" to "the months
-# array", and the page headline rendered `0 + [24208,24209,...]` -- a mile of
-# concatenated month indices where a comment count belonged. It never errored;
-# it just published a wrong number.
-#
-# Renaming on every shape change is what makes that impossible: a stale app.js
-# asks for a URL that no longer exists and fails loudly instead of misreading
-# live data. Bump BOTH when the row shape changes.
+# Row shape. Lives in the filename and in the payload so a stale cached app.js
+# 404s instead of reading new rows at old offsets -- which is how a shape change
+# under a fixed filename once made the page print a wrong total without erroring.
+# Bump this, and SCHEMA in app.js, together.
 SCHEMA = 2
 OUT = f"web/data/dockets.v{SCHEMA}.json"
 TITLES_OUT = f"web/data/titles.v{SCHEMA}.json"
