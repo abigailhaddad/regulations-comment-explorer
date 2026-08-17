@@ -21,6 +21,7 @@ let DATA = null;
 let table = null;
 let chartMonth = null;
 let chartAgency = null;
+let chartDockets = null;
 
 const FIELDS = {
     agency: { label: 'Agency', kind: 'list' },
@@ -134,6 +135,7 @@ function renderCharts(rows) {
         for (let ym = first; ym <= last; ym++) months.push(ym);
     }
     const topAgencies = [...byAgency.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15);
+    const topDockets = [...rows].sort((a, b) => b.comments - a.comments).slice(0, 10);
 
     const accent = '#2D6A4F';
     const gold = '#D4A03C';
@@ -171,6 +173,42 @@ function renderCharts(rows) {
                     },
                 },
                 y: { grid: { color: grid }, ticks: { color: tick, callback: v => fmt(v) } },
+            },
+        },
+    });
+
+    if (chartDockets) chartDockets.destroy();
+    chartDockets = new Chart(document.getElementById('chartDockets'), {
+        type: 'bar',
+        data: {
+            labels: topDockets.map(r => r.id),
+            datasets: [{
+                data: topDockets.map(r => r.comments),
+                backgroundColor: accent,
+                borderRadius: 3,
+            }],
+        },
+        options: {
+            indexAxis: 'y',
+            responsive: true, maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        // The axis has room for the docket id only; the tooltip is
+                        // where you find out what the rulemaking actually was.
+                        title: items => topDockets[items[0].dataIndex].title || '(no title)',
+                        label: c => fmt(c.parsed.x) + ' comments · ' +
+                            topDockets[c.dataIndex].agency,
+                    },
+                },
+            },
+            scales: {
+                x: { grid: { color: grid }, ticks: { color: tick, callback: v => fmt(v) } },
+                y: {
+                    grid: { display: false },
+                    ticks: { color: tick, autoSkip: false, font: { family: 'JetBrains Mono' } },
+                },
             },
         },
     });

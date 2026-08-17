@@ -2,7 +2,7 @@
 
 Every docket on regulations.gov and how many public comments it got — 25.4M comments across 58,026
 dockets and 179 agencies, 2003 to present. Filter by agency, year, docket type, title text, or a
-minimum comment count; the monthly chart, the stat cards and the CSV all follow the filters. Docket
+minimum comment count; every chart, the stat cards and the CSV all follow the filters. Docket
 IDs link to the docket on regulations.gov.
 
 **Live:** https://regulations-comments.pages.dev
