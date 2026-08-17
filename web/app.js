@@ -1,8 +1,9 @@
 /* Regulations.gov comment counts.
  *
  * Data shape (data/dockets.json):
- *   agencies: ["ACF", "ACL", ...]            index -> agency code
- *   types:    ["Rulemaking", "Nonrulemaking"]
+ *   agencies:    ["ACF", "ACL", ...]         index -> agency code
+ *   agencyNames: ["Administration of Children and Families", ...]  same index
+ *   types:       ["Rulemaking", "Nonrulemaking"]
  *   dockets:  [ [id, agencyIdx, title, typeIdx, total, [ym...], [comments...]], ... ]
  *
  * `ym` is a month index: year = ym / 12 | 0, month = ym % 12 + 1.
@@ -184,7 +185,17 @@ function renderCharts(rows) {
         options: {
             indexAxis: 'y',
             responsive: true, maintainAspectRatio: false,
-            plugins: { legend: { display: false } },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        // The axis only has room for the code; the tooltip is where
+                        // "FWS" becomes "Fish and Wildlife Service".
+                        title: items => agencyName(items[0].label),
+                        label: c => fmt(c.parsed.x) + ' comments',
+                    },
+                },
+            },
             scales: {
                 x: { grid: { color: grid }, ticks: { color: tick, callback: v => fmt(v) } },
                 // autoSkip drops every other agency, which mislabels the bars.
@@ -192,6 +203,11 @@ function renderCharts(rows) {
             },
         },
     });
+}
+
+function agencyName(code) {
+    const i = DATA.agencies.indexOf(code);
+    return i >= 0 ? DATA.agencyNames[i] + ' (' + code + ')' : code;
 }
 
 function yearOf(ym) {
@@ -208,7 +224,9 @@ function yearRange(r) {
 
 function renderTable(rows) {
     const data = rows.map(r => [
-        '<span class="docket-id">' + escapeHtml(r.id) + '</span>',
+        '<a class="docket-id" href="https://www.regulations.gov/docket/' +
+            encodeURIComponent(r.id) + '" target="_blank" rel="noopener">' +
+            escapeHtml(r.id) + '</a>',
         escapeHtml(r.agency),
         r.title
             ? '<div class="docket-title">' + escapeHtml(r.title) + '</div>'
@@ -295,7 +313,10 @@ function optionsFor(field) {
             counts.set(a, (counts.get(a) || 0) + 1);
         }
         return [...counts.entries()].sort((a, b) => b[1] - a[1])
-            .map(([v, n]) => ({ value: v, hint: fmt(n) + ' dockets' }));
+            .map(([v, n]) => ({
+                value: v,
+                hint: DATA.agencyNames[DATA.agencies.indexOf(v)] + ' · ' + fmt(n) + ' dockets',
+            }));
     }
     if (field === 'year') {
         const years = new Set();

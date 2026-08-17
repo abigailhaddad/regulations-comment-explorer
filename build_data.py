@@ -6,6 +6,10 @@ Reads two parquet files over HTTP range requests (no download, no API key):
 
 Output is one row per docket carrying its per-month counts, which is what lets
 the site filter by year exactly rather than by a first/last-year range.
+
+Agency display names come from agency_names.json, a committed snapshot of
+regulations.gov's /v4/agencies. Keeping it in the repo means the daily rebuild
+needs no API key; refresh it with refresh_agency_names.py when agencies change.
 """
 
 import gzip
@@ -19,9 +23,12 @@ SPICY = "https://r2.spicy-regs.dev"
 OUT = "web/data/dockets.json"
 TYPES = ["Rulemaking", "Nonrulemaking"]
 
-# Receive dates are occasionally mis-keyed (year 0, 1753, 1894). Those are data
-# entry, not history, and they wreck any axis they touch.
-FIRST_YEAR, LAST_YEAR = 1990, 2030
+# Regulations.gov launched in 2003. Records exist back to 1990, but they are a
+# handful of agencies (mostly DOT's modes, plus OSHA and EPA) who migrated their
+# own legacy docket systems -- 9-16 agencies of 179 and ~1% of comments. Showing
+# them next to the modern data invites reading a partial sample as a census, so
+# the site starts where regulations.gov does.
+FIRST_YEAR, LAST_YEAR = 2003, 2030
 
 
 def main():
@@ -49,9 +56,17 @@ def main():
     agencies = sorted({r[1] for r in rows})
     agency_index = {a: i for i, a in enumerate(agencies)}
 
+    with open("agency_names.json") as f:
+        known = json.load(f)
+    # Codes with no published name (test/training accounts) fall back to the code
+    # itself, so the chart tooltip always says something.
+    agency_names = [known.get(a, a) for a in agencies]
+    unnamed = [a for a in agencies if a not in known]
+
     data = {
         "generated": date.today().isoformat(),
         "agencies": agencies,
+        "agencyNames": agency_names,
         "types": TYPES,
         # [id, agencyIdx, title, typeIdx, total, [ym...], [comments...]]
         "dockets": [
@@ -77,7 +92,10 @@ def main():
     months = sum(len(d[5]) for d in data["dockets"])
     total = sum(d[4] for d in data["dockets"])
     print(f"{len(data['dockets']):,} dockets · {len(agencies)} agencies · "
-          f"{months:,} docket-months · {total:,} comments")
+          f"{months:,} docket-months · {total:,} comments "
+          f"({FIRST_YEAR}-present)")
+    if unnamed:
+        print(f"no published name for {len(unnamed)}: {', '.join(unnamed)}")
     print(f"{OUT}: {raw / 1e6:.1f} MB raw, {gz / 1e6:.2f} MB gzipped")
 
 

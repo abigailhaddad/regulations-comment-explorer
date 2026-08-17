@@ -2,3 +2,6 @@
 __pycache__/
 .wrangler/
 .playwright-mcp/
+
+# Rebuilt by build_data.py / CI; 8.7 MB and changes daily.
+web/data/dockets.json
