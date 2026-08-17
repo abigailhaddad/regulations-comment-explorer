@@ -14,7 +14,7 @@
     .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
     #dockets tbody tr:hover { background: var(--color-surface); }
     .no-title { color: var(--color-text-muted); font-style: italic; }
-    .rank-col { color: var(--color-text-muted); font-variant-numeric: tabular-nums; width: 1%; }
+    .rank-col { color: var(--color-text-muted); font-variant-numeric: tabular-nums; width: 1%; white-space: nowrap; }
     .loading-text { padding: 3rem 0; text-align: center; color: var(--color-text-muted); }
 </style>
 </head>
@@ -85,7 +85,7 @@
         <table id="dockets" class="table table-sm" style="width:100%; display:none;">
             <thead>
                 <tr>
-                    <th class="num" title="Position by total comments across all dockets, all agencies. Does not change when you filter.">#</th>
+                    <th class="num" title="Rank by total comments across every docket and agency, all time. Stays fixed when you filter — narrowing to one agency does not renumber it.">Rank</th>
                     <th>Docket</th>
                     <th>Agency</th>
                     <th>Title</th>

@@ -223,3 +223,11 @@ def test_rank_does_not_renumber_when_filtered(page: Page):
         .map(tr => Number(tr.children[0].textContent))""")
     assert ranks[0] > 1, f"OMB's biggest docket was renumbered to #{ranks[0]}"
     assert ranks == sorted(ranks), "ranks not ascending within a filtered view"
+
+
+def test_rank_column_is_labelled(page: Page):
+    # "#" was ambiguous next to a docket id that also looks like an identifier.
+    load(page)
+    header = page.locator("#dockets thead th").first
+    assert header.inner_text().strip() == "Rank"
+    assert "all time" in (header.get_attribute("title") or "")
