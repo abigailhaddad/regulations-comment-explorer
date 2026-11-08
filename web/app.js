@@ -623,6 +623,13 @@ async function loadData() {
         fmt(grand) + ' comments across ' + fmt(DATA.dockets.length) + ' dockets and ' +
         DATA.agencies.length + ' agencies.';
 
+    if (DATA.generated) {
+        const [gy, gm, gd] = DATA.generated.split('-').map(Number);
+        document.getElementById('dataUpdated').textContent =
+            new Date(gy, gm - 1, gd).toLocaleDateString(
+                'en-US', {month: 'short', day: 'numeric', year: 'numeric'});
+    }
+
     readFiltersFromURL();
 
     // A shared link carrying ?title= must not paint a wrong result set first and

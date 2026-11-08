@@ -46,6 +46,17 @@ def stat(page: Page, which: str) -> int:
 
 # ---------- it loads at all -------------------------------------------------
 
+def test_footer_says_when_the_data_was_rebuilt(page: Page):
+    """The date in the footer must be the data file's own `generated` date, not a
+    placeholder: a stale site should visibly say so."""
+    from datetime import date
+    load(page)
+    generated = page.evaluate("() => DATA.generated")
+    d = date.fromisoformat(generated)
+    expected = f"{d.strftime('%b')} {d.day}, {d.year}"
+    expect(page.locator("#dataUpdated")).to_have_text(expected)
+
+
 def test_no_console_errors(page: Page):
     # Chromium logs a failed request as "Failed to load resource: ... 404 ()"
     # with no URL in the text -- the URL is only in the message location. Append
